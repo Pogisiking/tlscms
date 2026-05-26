@@ -1,0 +1,31 @@
+# TODO - Audit Reports Module
+
+- [ ] Step 1: Inspect existing reports UI + edge function
+  - [x] Read `src/pages/ReportsPage.tsx`
+  - [x] Read `supabase/functions/reports/index.ts`
+- [ ] Step 2: Design/implement report engine
+  - [ ] Add client-side PDF export using `jspdf` + `jspdf-autotable`
+  - [ ] Add client-side Excel export using `xlsx`
+  - [ ] Add shared printable layout component + pagination/summary
+- [ ] Step 3: Implement UI controls
+  - [ ] Add date filtering, search, sorting, pagination
+  - [ ] Add summary totals + cash flow formula
+- [ ] Step 4: Add required reports
+  - [ ] Share Capital Report (per member contribution)
+  - [ ] Loan Release Report (all released loans)
+  - [ ] Collection Report (all received payments)
+  - [ ] Active Loan Report
+  - [ ] Fully Paid Loan Report
+  - [ ] Missed Payment Report
+  - [ ] Member Loan History Report
+  - [ ] Kinsenas Summary Report
+  - [ ] Cash Flow Report (Beginning Cash + Collections - Loans Released)
+- [ ] Step 5: Extend edge function endpoints
+  - [ ] Add/adjust report endpoints for each report type
+  - [ ] Add date filtering support server-side where needed
+- [ ] Step 6: Wire route + navigation (if needed)
+  - [ ] Ensure `/reports` page supports all required report types
+- [ ] Step 7: Build/test
+  - [ ] `npm run typecheck`
+  - [ ] `npm run lint`
+
