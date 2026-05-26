@@ -77,12 +77,22 @@ Deno.serve(async (req: Request) => {
       return json({ error: 'Token expired', exp: tokenData.exp }, 401);
     }
 
-    if (nst { data: role } = await supabase
+    let roleName: string | null = null;
+    if (tokenData.user_id) {
+      const { data: userRow } = await supabase
+        .from('users')
+        .select('role_id')
+        .eq('id', tokenData.user_id)
+        .maybeSingle();
+      const roleId = userRow?.role_id;
+      if (roleId) {
+        const { data: role } = await supabase
         .from('roles')
         .select('name')
         .eq('id', roleId)
         .maybeSingle();
       roleName = role?.name ?? null;
+      }
     }
 
     const requirePrivileged = () => {

@@ -3,8 +3,10 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Client-Info, Apikey",
+  "Access-Control-Allow-Credentials": "true",
+  "Access-Control-Max-Age": "86400",
 };
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
@@ -12,130 +14,138 @@ const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-function getUserId(req: Request): string | null {
-  const authHeader = req.headers.get('Authorization');
-  if (!authHeader) return null;
-
-  try {
-    const token = authHeader.replace('Bearer ', '');
-    const tokenData = JSON.parse(atob(token));
-    return tokenData.user_id;
-  } catch {
-    return null;
-  }
+function json(data: unknown, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
 }
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
-    });
+  if (req.method === 'OPTIONS') {
+    return new Response(null, { status: 200, headers: corsHeaders });
   }
 
-  const url = new URL(req.url);
-  const searchParams = url.searchParams;
-  const userId = getUserId(req);
-
   try {
-    // GET - List share capitals
-    if (req.method === 'GET') {
-      const memberId = searchParams.get('member_id');
+    const url = new URL(req.url);
+    const authHeader = req.headers.get('Authorization') || '';
+    const jwt = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
-      let query = supabase
-        .from('share_capitals')
-        .select('*, member:members(id, employee_id, full_name, position)')
-        .order('payment_date', { ascending: false });
-
-      if (memberId) {
-        query = query.eq('member_id', memberId);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        return new Response(
-          JSON.stringify({ error: error.message }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      return new Response(
-        JSON.stringify(data || []),
-        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+    if (!jwt) {
+      return json({ error: 'Missing/invalid Authorization Bearer token' }, 401);
     }
 
-    // POST - Create share capital
+    let tokenData: any;
+    try {
+      // Robust base64 decoding for custom JWT format
+      const base64 = jwt.replace(/-/g, '+').replace(/_/g, '/');
+      tokenData = JSON.parse(atob(base64));
+    } catch {
+      return json({ error: 'Invalid or malformed token format' }, 401);
+    }
+
+    if (!tokenData) {
+      return json({ error: 'Token decoded to empty/invalid JSON' }, 401);
+    }
+
+    if (!tokenData.exp) {
+      return json({ error: 'Token missing expiration (exp)' }, 401);
+    }
+
+    if (tokenData.exp < Date.now()) {
+      return json({ error: 'Token expired', exp: tokenData.exp }, 401);
+    }
+
+    if (!tokenData.user_id) {
+      return json({ error: 'Token missing user_id' }, 403);
+    }
+
+    // Role Helper: Fetch role name for permission checks
+    const getRole = async () => {
+      if (!tokenData.user_id) return null;
+      const { data: userRow } = await supabase
+        .from('users')
+        .select('role_id')
+        .eq('id', tokenData.user_id)
+        .maybeSingle();
+      if (!userRow?.role_id) return null;
+      const { data: role } = await supabase
+        .from('roles')
+        .select('name')
+        .eq('id', userRow.role_id)
+        .maybeSingle();
+      return role?.name ?? null;
+    };
+
+    // GET /shares - List all share capitals
+    if (req.method === 'GET') {
+      const { data, error } = await supabase
+        .from('share_capitals')
+        .select('*, member:members(full_name, employee_id)')
+        .order('payment_date', { ascending: false });
+
+      if (error) throw error;
+      return json(data);
+    }
+
+    // POST /shares - Record new contribution
     if (req.method === 'POST') {
       const body = await req.json();
-      const { member_id, amount, payment_date, notes } = body;
-
-      if (!member_id || !amount || !payment_date) {
-        return new Response(
-          JSON.stringify({ error: 'Member ID, amount, and payment date are required' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+      
+      // Resolve employee_id to member_id if needed (for Excel imports)
+      if (body.employee_id && !body.member_id) {
+        const { data: member } = await supabase
+          .from('members')
+          .select('id')
+          .eq('employee_id', body.employee_id)
+          .single();
+        if (member) {
+          body.member_id = member.id;
+          delete body.employee_id;
+        } else {
+          return json({ error: `Member with employee ID ${body.employee_id} not found` }, 404);
+        }
       }
 
-      // Generate receipt number
-      const receiptNumber = `SC-${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(Date.now()).slice(-5)}`;
-
-      // Create share capital record
       const { data, error } = await supabase
         .from('share_capitals')
         .insert({
-          member_id,
-          amount: Number(amount),
-          payment_date,
-          notes: notes || null,
-          receipt_number: receiptNumber,
-          created_by: userId,
+          ...body,
+          created_by: tokenData.user_id,
+          updated_by: tokenData.user_id,
         })
-        .select('*, member:members(id, employee_id, full_name, position)')
+        .select()
         .single();
 
-      if (error) {
-        return new Response(
-          JSON.stringify({ error: error.message }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-
-      // Update member's share capital amount
-      await supabase
-        .from('members')
-        .update({
-          share_capital_amount: Number(amount),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', member_id);
-
-      // Log audit
-      await supabase.from('audit_logs').insert({
-        user_id: userId,
-        action: 'INSERT',
-        table_name: 'share_capitals',
-        record_id: data.id,
-        new_values: data
-      });
-
-      return new Response(
-        JSON.stringify(data),
-        { status: 201, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
+      if (error) throw error;
+      return json(data);
     }
 
-    return new Response(
-      JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+    // DELETE /shares?id=... - Delete a contribution
+    if (req.method === 'DELETE') {
+      const id = url.searchParams.get('id');
+      if (!id) return json({ error: 'id parameter is required' }, 400);
 
-  } catch (error) {
-    console.error('Shares error:', error);
-    return new Response(
-      JSON.stringify({ error: 'Internal server error' }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-    );
+      const role = await getRole();
+      if (role !== 'admin') {
+        return json({ error: 'Forbidden: Only administrators can delete contributions' }, 403);
+      }
+
+      const { error } = await supabase
+        .from('share_capitals')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      return json({ ok: true });
+    }
+
+    return json({ 
+      error: `Method ${req.method} not allowed on this path`,
+      path: url.pathname 
+    }, 405);
+  } catch (err) {
+    console.error('Shares error:', err);
+    return json({ error: err instanceof Error ? err.message : 'Internal server error' }, 500);
   }
 });

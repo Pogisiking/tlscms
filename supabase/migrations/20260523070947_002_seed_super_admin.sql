@@ -170,7 +170,9 @@ BEGIN
     updated_at = now()
   WHERE id = target_member_id;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public;
 
 -- Add trigger to update cutoff total released
 CREATE OR REPLACE FUNCTION update_cutoff_totals()

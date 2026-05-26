@@ -87,7 +87,7 @@ export function SettingsPage() {
         let failCount = 0;
 
         for (const row of data as any[]) {
-          const endpoint = type === 'members' ? 'members' : 'share-capital';
+          const endpoint = type === 'members' ? 'members' : 'shares';
           try {
             const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${endpoint}`, {
               method: 'POST',

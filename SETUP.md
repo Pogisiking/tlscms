@@ -16,7 +16,7 @@ Password: Admin@2024!
 ### Core Modules
 - **Dashboard** - Real-time metrics and overview
 - **Member Management** - Complete member profiles with financial summaries
-- **Share Capital** - One-time contribution tracking
+- **Share Capital** - Multiple contribution tracking per member
 - **Loans** - Full lending cycle management with cutoff periods
 - **Payments** - Payment collection with receipt generation
 - **Reports** - Exportable financial and audit reports
@@ -65,7 +65,7 @@ To configure:
 The Supabase database includes:
 - Users and roles tables (RBAC system)
 - Members with financial summaries
-- Share capitals (one per member)
+- Share capitals (multiple per member)
 - Loans with automatic scheduling
 - Loan schedules for payment tracking
 - Payment records with receipts

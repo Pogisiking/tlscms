@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Plus, Search, Building2 } from 'lucide-react';
+import { Plus, Search, Building2, Trash2 } from 'lucide-react';
 import { PageHeader } from '../components/common/PageHeader';
 import { Card, Button, Badge, Modal, Input, Select } from '../components/common/DataCard';
 import { StatCard } from '../components/common/StatCard';
 import type { ShareCapital, MemberSummaryView } from '../types/database';
 import { formatCurrency, formatDate } from '../utils/formatters';
+import { useAuthStore } from '../stores/authStore';
 
 export function ShareCapitalPage() {
+  const { user } = useAuthStore();
   const [shareCapitals, setShareCapitals] = useState<ShareCapital[]>([]);
   const [members, setMembers] = useState<MemberSummaryView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -18,10 +20,17 @@ export function ShareCapitalPage() {
     fetchMembers();
   }, []);
 
+  const canDelete = user?.role?.name === 'admin';
+
   const fetchShareCapitals = async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('auth_token');
+      if (!token || token === 'undefined' || token === 'null') {
+        console.warn('No valid auth token found in storage');
+        return;
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/shares`,
         {
@@ -60,6 +69,35 @@ export function ShareCapitalPage() {
       }
     } catch (error) {
       console.error('Error fetching members:', error);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('Are you sure you want to delete this contribution? This will also update the member\'s total share capital.')) return;
+
+    try {
+      const token = localStorage.getItem('auth_token');
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/shares?id=${id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+        }
+      );
+
+      if (response.ok) {
+        fetchShareCapitals();
+        fetchMembers();
+      } else {
+        const data = await response.json();
+        alert(data.error || 'Failed to delete contribution');
+      }
+    } catch (error) {
+      console.error('Error deleting share capital:', error);
+      alert('An error occurred while deleting');
     }
   };
 
@@ -150,13 +188,24 @@ export function ShareCapitalPage() {
                     <p className="text-sm text-gray-500">{sc.member?.employee_id}</p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-lg font-bold text-blue-600">
-                    {formatCurrency(sc.amount)}
-                  </p>
-                  <p className="text-sm text-gray-500">{formatDate(sc.payment_date)}</p>
-                  {sc.receipt_number && (
-                    <p className="text-xs text-gray-400">{sc.receipt_number}</p>
+                <div className="flex items-center gap-6">
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-blue-600">
+                      {formatCurrency(sc.amount)}
+                    </p>
+                    <p className="text-sm text-gray-500">{formatDate(sc.payment_date)}</p>
+                    {sc.receipt_number && (
+                      <p className="text-xs text-gray-400">{sc.receipt_number}</p>
+                    )}
+                  </div>
+                  {canDelete && (
+                    <button
+                      onClick={() => handleDelete(sc.id)}
+                      className="p-2 text-gray-400 hover:text-red-600 transition-colors"
+                      title="Delete contribution"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
                   )}
                 </div>
               </div>
@@ -200,6 +249,18 @@ function AddShareCapitalModal({
     e.preventDefault();
     setLoading(true);
     setError('');
+
+    if (!memberId) {
+      setError('Please select a member.');
+      setLoading(false);
+      return;
+    }
+
+    if (Number(amount) <= 0) {
+      setError('Amount must be greater than 0.');
+      setLoading(false);
+      return;
+    }
 
     try {
       const token = localStorage.getItem('auth_token');
